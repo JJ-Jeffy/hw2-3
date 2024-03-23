@@ -149,7 +149,7 @@ void init_simulation(particle_t* parts, int num_parts, double size) {
 
     // Allocate memory for particle_ids, bin_ids, and bin_counts
     cudaMalloc(&particle_ids, num_parts * sizeof(int));
-    cudaMalloc(&bin_ids, num_bins * num_bins * sizeof(int));
+    cudaMalloc(&bin_ids, (num_bins * num_bins +1) * sizeof(int));
     cudaMalloc(&bin_counts, num_bins * num_bins * sizeof(int));
 
     // Set particle_ids, bin_ids, and bin_counts to zero
@@ -162,7 +162,6 @@ void simulate_one_step(particle_t* parts, int num_parts, double size) {
     // parts live in GPU memory
     // Rewrite this function
     set_to_zero<<<blks, NUM_THREADS>>>(bin_counts, num_bins * num_bins);
-    set_to_zero<<<blks, NUM_THREADS>>>(bin_ids, num_bins * num_bins);
 
     // Update bin_counts and particle_ids
     update_bin_counts_gpu<<<blks, NUM_THREADS>>>(parts, num_parts, bin_counts, num_bins, bin_size);
@@ -170,8 +169,8 @@ void simulate_one_step(particle_t* parts, int num_parts, double size) {
     // Perform exclusive scan on bin_counts
     thrust::exclusive_scan(thrust::device, bin_counts, bin_counts + num_bins * num_bins, bin_ids);
 
-    // Copy the result back to bin_counts
-    cudaMemcpy(bin_counts, bin_ids, num_bins * num_bins * sizeof(int), cudaMemcpyDeviceToDevice);
+    // // Copy the result back to bin_counts
+    // cudaMemcpy(bin_counts, bin_ids, num_bins * num_bins * sizeof(int), cudaMemcpyDeviceToDevice);
 
     // Update particle_ids
     update_particle_ids_gpu<<<blks, NUM_THREADS>>>(parts, num_parts, particle_ids, bin_ids, num_bins, bin_size);
