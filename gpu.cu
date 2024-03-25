@@ -14,11 +14,6 @@ int tot_bins;
 double bin_size;
 
 
-int* particle_ids;  // array for sorted particles 
-int* bin_ids;       // array containing the index of the first particle that is stored in it 
-int* bin_counts;    // array containing the number of particles in each bin
-int* particle_counter;     // counter for the number of particles in each bin
-
 // Function to set an array to zeros 
 __global__ void set_to_zero(int* arr, int size) {
     int tid = threadIdx.x + blockIdx.x * blockDim.x;
@@ -155,44 +150,32 @@ void init_simulation(particle_t* parts, int num_parts, double size) {
     num_bins = ceil(size / cutoff);
     tot_bins = num_bins * num_bins;
     bin_size = size / num_bins;
-
-    // Allocate memory for particle_ids, bin_ids, and bin_counts
-    cudaMalloc((void**)&particle_ids, num_parts * sizeof(int));
-    cudaMalloc((void**)&bin_ids, tot_bins * sizeof(int));
-    cudaMalloc((void**)&bin_counts, tot_bins * sizeof(int));
-    cudaMalloc((void**)&particle_counter, tot_bins * sizeof(int));
-
-    // set everything to zero 
-    set_to_zero<<<blks, NUM_THREADS>>>(bin_counts, tot_bins);
-    set_to_zero<<<blks, NUM_THREADS>>>(particle_ids, num_parts);
-    set_to_zero<<<blks, NUM_THREADS>>>(bin_ids, tot_bins);
-    set_to_zero<<<blks, NUM_THREADS>>>(particle_counter, tot_bins);
 }
 
 void simulate_one_step(particle_t* parts, int num_parts, double size) {
     // parts live in GPU memory
     // Rewrite this function
     
-    // set everything to zero 
-    set_to_zero<<<blks, NUM_THREADS>>>(bin_counts, tot_bins);
-    set_to_zero<<<blks, NUM_THREADS>>>(particle_ids, num_parts);
-    set_to_zero<<<blks, NUM_THREADS>>>(bin_ids,tot_bins);
-    set_to_zero<<<blks, NUM_THREADS>>>(particle_counter, tot_bins);
+    // Initialize thrust vectors 
+    thrust::device_vector<int> bin_counts(tot_bins);
+    thrust::device_vector<int> bin_ids(tot_bins);
+    thrust::device_vector<int> particle_ids(num_parts);
+    thrust::device_vector<int> particle_counter(tot_bins);
 
     // Update bin_counts and particle_ids
-    update_bin_counts_gpu<<<blks, NUM_THREADS>>>(parts, num_parts, bin_counts, num_bins, bin_size);
+    update_bin_counts_gpu<<<blks, NUM_THREADS>>>(parts, num_parts, bin_counts.data().get(), num_bins, bin_size);
 
     // Perform exclusive scan on bin_counts
-    thrust::inclusive_scan(thrust::device, bin_counts, bin_counts + tot_bins, bin_ids);
+    thrust::exclusive_scan(thrust::device, bin_counts.begin(), bin_counts.end(), bin_ids.begin());
 
     // // Copy the result back to bin_counts
     // cudaMemcpy(bin_counts, bin_ids, num_bins * num_bins * sizeof(int), cudaMemcpyDeviceToDevice);
 
     // Update particle_ids
-    update_particle_ids_gpu<<<blks, NUM_THREADS>>>(parts, num_parts, particle_ids, bin_ids, bin_counts, particle_counter, num_bins, bin_size);
+    update_particle_ids_gpu<<<blks, NUM_THREADS>>>(parts, num_parts, particle_ids.data().get(), bin_ids.data().get(), bin_counts.data().get(), particle_counter.data().get(), num_bins, bin_size);
 
     // Compute forces
-    compute_forces_gpu<<<blks, NUM_THREADS>>>(parts, num_parts, particle_ids, bin_ids, bin_counts, num_bins, bin_size);
+    compute_forces_gpu<<<blks, NUM_THREADS>>>(parts, num_parts, particle_ids.data().get(), bin_ids.data().get(), bin_counts.data().get(), num_bins, bin_size);
 
     // Move particles
     move_gpu<<<blks, NUM_THREADS>>>(parts, num_parts, size);
